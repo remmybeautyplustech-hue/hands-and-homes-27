@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile, cp } from 'node:fs/promises';
 import { join } from 'node:path';
 
-const htmlFiles = ['index.html','about.html','services.html','staff.html','categories.html','screening.html','employers.html','testimonials.html','faq.html','contact.html','request.html','consultation.html','legal.html'];
+const htmlFiles = ['index.html','about.html','services.html','staff.html','categories.html','screening.html','employers.html','testimonials.html','faq.html','contact.html','request.html','consultation.html','legal.html','admin.html'];
 const assets = {};
 for (const file of [...htmlFiles, 'site.css', 'app.js']) assets[`/${file === 'index.html' ? '' : file}`] = await readFile(file, 'utf8');
 assets['/index.html'] = assets['/'];
@@ -21,6 +21,12 @@ export default {async fetch(request,env){
   }
   if(url.pathname==='/api/health'){
     try{await env.DB.prepare('SELECT 1').first();return json({ok:true,storage:'connected'})}catch{return json({ok:false,storage:'unavailable'},503)}
+  }
+  if(url.pathname==='/api/content'&&request.method==='GET'){
+    try{const row=await env.DB.prepare("SELECT value FROM site_settings WHERE key='content'").first();return json({ok:true,content:row?JSON.parse(row.value):null})}catch{return json({ok:false,error:'Unable to load site content.'},500)}
+  }
+  if(url.pathname==='/api/admin-content'&&request.method==='PUT'){
+    try{const body=await request.json();if(!body||typeof body!=='object')return json({ok:false,error:'Invalid content.'},400);const value=JSON.stringify(body).slice(0,250000);await env.DB.prepare("INSERT INTO site_settings (key,value,updated_at) VALUES ('content',?,CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP").bind(value).run();return json({ok:true})}catch{return json({ok:false,error:'Unable to save site content.'},500)}
   }
   if(request.method!=='GET'&&request.method!=='HEAD') return new Response('Method not allowed',{status:405});
   let path=url.pathname;
