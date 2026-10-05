@@ -7,9 +7,11 @@ for (const file of [...htmlFiles, 'site.css', 'app.js']) assets[`/${file === 'in
 assets['/index.html'] = assets['/'];
 
 const worker = `const assets=${JSON.stringify(assets)};
+const OWNER_ID='094557f5-8c24-466b-944f-d54358bcf6c0';
 const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'}});
 export default {async fetch(request,env){
   const url=new URL(request.url);
+  const isOwner=request.headers.get('oai-authenticated-user-id')===OWNER_ID;
   if(url.pathname==='/api/submissions'&&request.method==='POST'){
     try{
       const body=await request.json();
@@ -26,11 +28,13 @@ export default {async fetch(request,env){
     try{const row=await env.DB.prepare("SELECT value FROM site_settings WHERE key='content'").first();return json({ok:true,content:row?JSON.parse(row.value):null})}catch{return json({ok:false,error:'Unable to load site content.'},500)}
   }
   if(url.pathname==='/api/admin-content'&&request.method==='PUT'){
+    if(!isOwner)return json({ok:false,error:'Owner access required.'},403);
     try{const body=await request.json();if(!body||typeof body!=='object')return json({ok:false,error:'Invalid content.'},400);const value=JSON.stringify(body).slice(0,250000);await env.DB.prepare("INSERT INTO site_settings (key,value,updated_at) VALUES ('content',?,CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP").bind(value).run();return json({ok:true})}catch{return json({ok:false,error:'Unable to save site content.'},500)}
   }
   if(request.method!=='GET'&&request.method!=='HEAD') return new Response('Method not allowed',{status:405});
   let path=url.pathname;
   if(path.endsWith('/')) path=path.slice(0,-1)||'/';
+  if(path==='/admin.html'&&!isOwner)return new Response('Owner access required',{status:403});
   const body=assets[path];
   if(body===undefined)return new Response('Not found',{status:404});
   const type=path.endsWith('.css')?'text/css; charset=utf-8':path.endsWith('.js')?'text/javascript; charset=utf-8':'text/html; charset=utf-8';
