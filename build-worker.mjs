@@ -31,6 +31,25 @@ export default {async fetch(request,env){
     if(!isOwner)return json({ok:false,error:'Owner access required.'},403);
     try{const body=await request.json();if(!body||typeof body!=='object')return json({ok:false,error:'Invalid content.'},400);const value=JSON.stringify(body).slice(0,250000);await env.DB.prepare("INSERT INTO site_settings (key,value,updated_at) VALUES ('content',?,CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP").bind(value).run();return json({ok:true})}catch{return json({ok:false,error:'Unable to save site content.'},500)}
   }
+  if(url.pathname==='/api/admin-upload'&&request.method==='POST'){
+    if(!isOwner)return json({ok:false,error:'Owner access required.'},403);
+    try{
+      const form=await request.formData();const file=form.get('image');
+      const allowed=['image/jpeg','image/png','image/webp','image/gif'];
+      if(!file||typeof file.arrayBuffer!=='function'||!allowed.includes(file.type))return json({ok:false,error:'Choose a JPG, PNG, WebP or GIF image.'},400);
+      if(file.size>5*1024*1024)return json({ok:false,error:'Please choose an image smaller than 5 MB.'},413);
+      const extension={"image/jpeg":'jpg',"image/png":'png',"image/webp":'webp',"image/gif":'gif'}[file.type];
+      const key='uploads/'+Date.now()+'-'+crypto.randomUUID()+'.'+extension;
+      await env.BUCKET.put(key,await file.arrayBuffer(),{httpMetadata:{contentType:file.type,cacheControl:'public, max-age=31536000, immutable'}});
+      return json({ok:true,url:'/media/'+key},201);
+    }catch{return json({ok:false,error:'The picture could not be uploaded.'},500)}
+  }
+  if(url.pathname.startsWith('/media/uploads/')&&(request.method==='GET'||request.method==='HEAD')){
+    const key=url.pathname.slice('/media/'.length);const object=await env.BUCKET.get(key);
+    if(!object)return new Response('Not found',{status:404});
+    const headers=new Headers();object.writeHttpMetadata(headers);headers.set('etag',object.httpEtag);headers.set('x-content-type-options','nosniff');
+    return new Response(request.method==='HEAD'?null:object.body,{headers});
+  }
   if(request.method!=='GET'&&request.method!=='HEAD') return new Response('Method not allowed',{status:405});
   let path=url.pathname;
   if(path.endsWith('/')) path=path.slice(0,-1)||'/';
